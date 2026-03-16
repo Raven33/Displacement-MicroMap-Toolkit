@@ -105,6 +105,79 @@ void initBaryData(const meshops::MeshView& meshView, uint32_t defaultSubdivLevel
   baryBasic->triangleMinMaxs.resize(baryBasic->triangleMinMaxsInfo.elementCount * baryBasic->triangleMinMaxsInfo.elementByteSize);
 }
 
+void initBaryDataNormals(const meshops::MeshView& meshView, uint32_t defaultSubdivLevel, bary::Format normalFormat, baryutils::BaryBasicData* baryBasic)
+{
+  *baryBasic = {};
+
+  baryBasic->minSubdivLevel = ~0U;
+  baryBasic->maxSubdivLevel = 0U;
+
+  uint32_t valuesOffset = 0U;
+  {
+    bary::Group baryGroup;
+    baryGroup.minSubdivLevel = ~0U;
+    baryGroup.maxSubdivLevel = 0U;
+    baryGroup.triangleFirst  = 0U;
+    baryGroup.valueFirst     = 0U;
+    baryGroup.floatBias      = bary::ValueFloatVector{0.0f, 0.0f, 0.0f, 0.0f};
+    baryGroup.floatScale     = bary::ValueFloatVector{1.0f, 1.0f, 1.0f, 0.0f};
+    baryGroup.triangleCount  = static_cast<uint32_t>(meshView.triangleCount());
+    baryBasic->triangles.reserve(baryGroup.triangleCount);
+    uint32_t defaultMicroVertexCount = bary::baryValueFrequencyGetCount(bary::ValueFrequency::ePerVertex, defaultSubdivLevel);
+    for(size_t i = 0; i < meshView.triangleCount(); ++i)
+    {
+      uint16_t subdivLevel = meshView.triangleSubdivisionLevels.empty() ? static_cast<uint16_t>(defaultSubdivLevel) :
+                                                                          meshView.triangleSubdivisionLevels[i];
+      uint32_t triangleMicroVertexCount = meshView.triangleSubdivisionLevels.empty() ?
+                                              defaultMicroVertexCount :
+                                              bary::baryValueFrequencyGetCount(bary::ValueFrequency::ePerVertex, subdivLevel);
+      baryBasic->triangles.push_back(bary::Triangle{valuesOffset, subdivLevel, {0}});
+      valuesOffset += triangleMicroVertexCount;
+
+      baryGroup.minSubdivLevel = std::min(baryGroup.minSubdivLevel, uint32_t(subdivLevel));
+      baryGroup.maxSubdivLevel = std::max(baryGroup.maxSubdivLevel, uint32_t(subdivLevel));
+    }
+    baryGroup.valueCount = valuesOffset;
+    baryBasic->groups.push_back(baryGroup);
+
+    baryBasic->minSubdivLevel = std::min(baryBasic->minSubdivLevel, baryGroup.minSubdivLevel);
+    baryBasic->maxSubdivLevel = std::max(baryBasic->maxSubdivLevel, baryGroup.maxSubdivLevel);
+  }
+
+  uint32_t microVertexCount = valuesOffset;
+
+  // Compute bytes per normal element. eRGB16_snorm = 3 x 16-bit = 6 bytes. eRG16_snorm = 2 x 16-bit = 4 bytes.
+  // eR32_sfloat stored as vec3f = 12 bytes.
+  uint32_t bytesPerElement = 0;
+  switch(normalFormat)
+  {
+    case bary::Format::eRGB16_snorm:
+      bytesPerElement = 6;
+      break;
+    case bary::Format::eRG16_snorm:
+      bytesPerElement = 4;
+      break;
+    case bary::Format::eR32_sfloat:
+      bytesPerElement = 12;
+      break;  // vec3f
+    default:
+      assert(false && "Unsupported normal format");
+      bytesPerElement = 6;
+      break;
+  }
+
+  baryBasic->valuesInfo.valueCount         = microVertexCount;
+  baryBasic->valuesInfo.valueLayout        = bary::ValueLayout::eTriangleBirdCurve;
+  baryBasic->valuesInfo.valueFrequency     = bary::ValueFrequency::ePerVertex;
+  baryBasic->valuesInfo.valueFormat        = normalFormat;
+  baryBasic->valuesInfo.valueByteAlignment = bytesPerElement;
+  baryBasic->valuesInfo.valueByteSize      = bytesPerElement;
+  assert(baryBasic->valuesInfo.valueByteSize != 0);
+  baryBasic->values.resize(static_cast<size_t>(baryBasic->valuesInfo.valueCount) * baryBasic->valuesInfo.valueByteSize);
+  // No triangleMinMaxs for normals
+}
+
+
 MESHOPS_API void MESHOPS_CALL meshopsBakeGetProperties(Context context, BakerOperator op, OpBake_properties& properties)
 {
   // Defined in host_device.h
@@ -294,7 +367,7 @@ MESHOPS_API micromesh::Result MESHOPS_CALL meshopsOpBake(Context context, BakerO
 
   nvvk::SamplerPool samplerPool(context->m_vk->m_ptrs.context->m_device);
   auto              samplerDeleter = [&samplerPool](VkSampler_T* s) { samplerPool.releaseSampler(s); };
-  auto              sampler = std::unique_ptr<VkSampler_T, decltype(samplerDeleter)>(samplerPool.acquireSampler(samplerCreateInfo), samplerDeleter);
+  auto sampler = std::unique_ptr<VkSampler_T, decltype(samplerDeleter)>(samplerPool.acquireSampler(samplerCreateInfo), samplerDeleter);
 
   std::vector<VkDescriptorImageInfo> inputTextures;
   std::vector<VkDescriptorImageInfo> outputTextures;
@@ -357,8 +430,22 @@ MESHOPS_API micromesh::Result MESHOPS_CALL meshopsOpBake(Context context, BakerO
   ArrayView triangleMinMaxs(reinterpret_cast<nvmath::vec2f*>(output.uncompressedDisplacement->triangleMinMaxs.data()),
                             output.uncompressedDisplacement->triangleMinMaxsInfo.elementCount / 2);
 
+  // Allocate normal scratch storage (float vec3 for GPU readback) if requested
+  const bool                 bakeNormals  = (output.uncompressedNormal != nullptr);
+  bary::Format               normalFormat = bary::Format::eRGB16_snorm;  // Override plan default: use RGB16 not RG16
+  std::vector<nvmath::vec3f> normalValues;
+  if(bakeNormals)
+  {
+    normalFormat = input.settings.uncompressedNormalFormat == bary::Format::eRG16_snorm ?
+                       bary::Format::eRGB16_snorm :  // upgrade default to RGB
+                       input.settings.uncompressedNormalFormat;
+    normalValues.resize(output.uncompressedDisplacement->valuesInfo.valueCount, nvmath::vec3f(0.f, 0.f, 0.f));
+    initBaryDataNormals(input.baseMeshView, input.settings.level, normalFormat, output.uncompressedNormal);
+  }
+  MutableArrayView<nvmath::vec3f> normalsView(normalValues.data(), normalValues.size());
+
   // Create GPU buffers for the base mesh and output
-  baker.create(input, distances);
+  baker.create(input, distances, normalsView);
 
   // Compute remaining memory available for the baker reference mesh. Textures
   // and data for the base mesh have already been allocated.
@@ -509,6 +596,53 @@ MESHOPS_API micromesh::Result MESHOPS_CALL meshopsOpBake(Context context, BakerO
       if(result != micromesh::Result::eSuccess)
       {
         MESHOPS_LOGE(context, "micromesh::micromeshOpSanitizeEdgeValues() failed");
+        return result;
+      }
+    }
+  }
+
+  // Normal post-processing
+  if(bakeNormals)
+  {
+    // Readback raw float vec3 normals from GPU buffer
+    baker.getNormalsFromBuffer(normalsView);
+
+    // Quantize float normals to eRGB16_snorm in output.uncompressedNormal->values
+    // Each element is 6 bytes: 3 x int16_t snorm in [-1,1]
+    assert(output.uncompressedNormal->valuesInfo.valueFormat == bary::Format::eRGB16_snorm);
+    assert(output.uncompressedNormal->valuesInfo.valueByteSize == 6);
+    const uint32_t numNormals = output.uncompressedNormal->valuesInfo.valueCount;
+    assert(normalValues.size() == numNormals);
+    uint8_t* dst = output.uncompressedNormal->values.data();
+    for(uint32_t i = 0; i < numNormals; ++i)
+    {
+      const nvmath::vec3f& n         = normalValues[i];
+      auto                 toSnorm16 = [](float v) -> int16_t {
+        v = std::max(-1.0f, std::min(1.0f, v));
+        return static_cast<int16_t>(std::round(v * 32767.0f));
+      };
+      int16_t x = toSnorm16(n.x);
+      int16_t y = toSnorm16(n.y);
+      int16_t z = toSnorm16(n.z);
+      memcpy(dst + i * 6 + 0, &x, 2);
+      memcpy(dst + i * 6 + 2, &y, 2);
+      memcpy(dst + i * 6 + 4, &z, 2);
+    }
+
+    // Sanitize normal edge values — shared triangle edges must agree
+    assert(output.uncompressedNormal->groups.size() == 1);
+    bary::BasicView            normalBaryView = output.uncompressedNormal->getView();
+    micromesh::MicromapGeneric normalMicromapG;
+    microutils::baryBasicViewToMicromap(normalBaryView, 0u, normalMicromapG);
+    micromesh::Micromap& normalMicromap = normalMicromapG.uncompressed;
+    {
+      micromesh::OpSanitizeEdgeValues_input sanitizeInput;
+      sanitizeInput.meshTopology = baseMeshTopology;
+      micromesh::Result result =
+          micromesh::micromeshOpSanitizeEdgeValues(context->m_micromeshContext, &sanitizeInput, &normalMicromap);
+      if(result != micromesh::Result::eSuccess)
+      {
+        MESHOPS_LOGE(context, "micromesh::micromeshOpSanitizeEdgeValues() failed for normals");
         return result;
       }
     }

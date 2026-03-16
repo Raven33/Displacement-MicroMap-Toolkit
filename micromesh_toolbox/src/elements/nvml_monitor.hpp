@@ -13,6 +13,7 @@
 #pragma once
 
 #if defined(NVP_SUPPORTS_NVML)
+#include <chrono>
 #include <iostream>
 #include <nvml.h>
 #include <string>

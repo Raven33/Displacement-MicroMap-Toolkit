@@ -37,11 +37,14 @@ public:
     Relations() = default;
     Relations(const tinygltf::Primitive& primitive);
 
-    int32_t bary{-1};           // scene.barys()[bary]. May be -1.
-    int32_t group{0};           // scene.barys()[bary].groups()[group]
-    int32_t mapOffset{0};       // NV_displacement_micromap::mapOffset offset to mapIndices
-    int32_t material{-1};       // scene.materials()[material]. May be -1.
-    int32_t firstInstance{-1};  // scene.instances()[firstInstance]. May be -1.
+    int32_t bary{-1};               // scene.barys()[bary]. May be -1.
+    int32_t group{0};               // scene.barys()[bary].groups()[group]
+    int32_t mapOffset{0};           // NV_displacement_micromap::mapOffset offset to mapIndices
+    int32_t attributeBary{-1};      // scene.barys()[attributeBary] for NV_attribute_micromap. May be -1.
+    int32_t attributeGroup{0};      // scene.barys()[attributeBary].groups()[attributeGroup]
+    int32_t attributeMapOffset{0};  // NV_attribute_micromap::mapOffset offset
+    int32_t material{-1};           // scene.materials()[material]. May be -1.
+    int32_t firstInstance{-1};      // scene.instances()[firstInstance]. May be -1.
   };
 
   struct Meta

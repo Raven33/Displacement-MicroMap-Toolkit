@@ -226,7 +226,7 @@ void toolBakeAddRequirements(meshops::ContextConfig& contextConfig)
 bool toolBake(micromesh_tool::ToolContext& context, const ToolBakeArgs& args, std::unique_ptr<micromesh_tool::ToolScene>& base)
 {
   // Load the reference scene, if there is one. Otherwise, reuse the base mesh
-  fs::path                     highBasePath;
+  fs::path                                   highBasePath;
   std::unique_ptr<micromesh_tool::ToolScene> reference;
   if(!args.highFilename.empty())
   {
@@ -368,6 +368,7 @@ bool toolBake(micromesh_tool::ToolContext&                context,
 
   // Bake one mesh at a time
   std::vector<baryutils::BaryContentData> baryContents;
+  std::vector<baryutils::BaryContentData> baryNormalContents;
   std::vector<size_t>                     baryGroupToMeshIndex;
   for(size_t meshIndex = 0; meshIndex < base->meshes().size(); ++meshIndex)
   {
@@ -390,9 +391,9 @@ bool toolBake(micromesh_tool::ToolContext&                context,
     // Reference mesh heightmap config
     meshops::OpBake_heightmap heightmapDesc;
     meshops::TextureConfig    heightmapConfig{};
-    heightmapDesc.normalizeDirections           = true;
+    heightmapDesc.normalizeDirections = true;
     heightmapDesc.usesVertexNormalsAsDirections = referenceView.vertexDirections.empty() && !args.heightmapDirectionsGen;
-    heightmapDesc.pnTriangles                   = args.heightmapPNtriangles;
+    heightmapDesc.pnTriangles = args.heightmapPNtriangles;
     int                                        heightmapImageIndex;
     std::unique_ptr<micromesh_tool::ToolImage> heightmapOverride;
     const micromesh_tool::ToolImage*           heightmapImage{};
@@ -732,11 +733,16 @@ bool toolBake(micromesh_tool::ToolContext&                context,
       // linearized when saving so that each becomes its own bary group.
       baryGroupToMeshIndex.push_back(meshIndex);
       baryContents.emplace_back();
+      if(args.bakeNormals)
+      {
+        baryNormalContents.emplace_back();
+      }
 
       meshops::OpBake_output output;
       output.resamplerTextures        = meshops::ArrayView(resamplerOutput);
       output.uncompressedDisplacement = args.compressed ? &baryUncompressedTemp : &baryContents.back().basic;
       output.vertexDirectionBounds    = baseMesh->view().vertexDirectionBounds;
+      output.uncompressedNormal       = args.bakeNormals ? &baryNormalContents.back().basic : nullptr;
 
       micromesh::Result result = meshops::meshopsOpBake(context.meshopsContext(), bakeOperator, input, output);
       if(result != micromesh::Result::eSuccess)
@@ -818,6 +824,26 @@ bool toolBake(micromesh_tool::ToolContext&                context,
   else
   {
     LOGW("Warning: All meshes were skipped. Scene will have no micromesh displacement.\n");
+  }
+
+  // Create and link normal bary if requested
+  if(!baryNormalContents.empty())
+  {
+    std::string               normalBaryFilename = args.normalBaryFilename.empty() ?
+                                                       (args.baryFilename.empty() ? "" : args.baryFilename + "_normals") :
+                                                       args.normalBaryFilename;
+    std::unique_ptr<ToolBary> normalBary         = ToolBary::create(std::move(baryNormalContents), normalBaryFilename);
+    if(!normalBary)
+    {
+      return false;
+    }
+    size_t normalBaryIndex = base->appendBary(std::move(normalBary));
+
+    for(size_t groupIndex = 0; groupIndex < baryGroupToMeshIndex.size(); ++groupIndex)
+    {
+      size_t meshIndex = baryGroupToMeshIndex[groupIndex];
+      base->linkAttributeBary(normalBaryIndex, groupIndex, meshIndex);
+    }
   }
 
   // Debug meshes

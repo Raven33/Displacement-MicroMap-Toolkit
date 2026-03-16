@@ -245,7 +245,7 @@ int main(int argc, char** argv)
   static VkPhysicalDeviceDisplacementMicromapFeaturesNV mmDisplacementFeatures = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DISPLACEMENT_MICROMAP_FEATURES_NV};
   spec.vkSetup.addDeviceExtension(VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME, true, &mmOpacityFeatures);
-  spec.vkSetup.addDeviceExtension(VK_NV_DISPLACEMENT_MICROMAP_EXTENSION_NAME, true, &mmDisplacementFeatures);
+ // spec.vkSetup.addDeviceExtension(VK_NV_DISPLACEMENT_MICROMAP_EXTENSION_NAME, true, &mmDisplacementFeatures);
 
 #ifdef USE_NSIGHT_AFTERMATH
   // Enable NV_device_diagnostic_checkpoints extension to be able to use Aftermath event markers.

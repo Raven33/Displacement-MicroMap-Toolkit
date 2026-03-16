@@ -118,7 +118,9 @@ struct ToolBakeArgs
   std::string                       offsetTexturesStem;
   std::string                       heightTexturesStem;
   std::string                       normalTexturesStem;
-  std::vector<std::string>          heightmaps;  // Per-mesh heightmaps, overriding any in gltf materials
+  std::vector<std::string>          heightmaps;          // Per-mesh heightmaps, overriding any in gltf materials
+  bool                              bakeNormals{false};  // --bake-normals: produce NV_attribute_micromap for NORMAL
+  std::string                       normalBaryFilename;  // Optional custom filename for normal bary
 };
 
 // Bakes dispalcement from the base scene onto the scene specified by

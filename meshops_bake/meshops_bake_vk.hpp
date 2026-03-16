@@ -124,8 +124,8 @@ public:
                        const std::vector<VkDescriptorImageInfo>& outputTextures,
                        const std::vector<VkDescriptorImageInfo>& distanceTextures,
                        ArrayView<meshops::Texture>               outputTextureInfo);
-  void create(const meshops::OpBake_input& input, MutableArrayView<float> distances);
-  static uint64_t estimateBaseGpuMemory(uint64_t distances, uint64_t triangles, uint64_t vertices, bool requireDirectionBounds);
+  void create(const meshops::OpBake_input& input, MutableArrayView<float> distances, MutableArrayView<nvmath::vec3f> normals = {});
+  static uint64_t estimateBaseGpuMemory(uint64_t distances, uint64_t triangles, uint64_t vertices, bool requireDirectionBounds, bool bakeNormals = false);
   static uint64_t estimateBatchGpuMemory(VkDevice device, uint64_t triangles, uint64_t vertices);
   void            fitDirectionBounds(const meshops::OpBake_input& input, MutableArrayView<float> distances);
   void            getDistanceFromBuffer(const meshops::OpBake_input&    input,
@@ -133,6 +133,7 @@ public:
                                         MutableArrayView<float>         distances,
                                         MutableArrayView<nvmath::vec2f> triangleMinMaxs,
                                         nvmath::vec2f&                  globalMinMax);
+  void            getNormalsFromBuffer(MutableArrayView<nvmath::vec3f> normals);
   void            destroy();
 
 private:
@@ -142,6 +143,7 @@ private:
 
   BakerMeshVK  m_baseVk;
   nvvk::Buffer m_distanceBuf;        // baker result - a linear array of floats
+  nvvk::Buffer m_normalsBuf;         // baker result - a linear array of vec3f normals (optional)
   nvvk::Buffer m_trianglesBuf;       // per-triangle microvertex offsets, shaders::Triangle
   nvvk::Buffer m_triangleMinMaxBuf;  // per-triangle direction-length-relative displacement distance (min, max) pairs
   std::vector<nvvk::Buffer> m_baryCoordBuf;  // Micro-triangle coordinates in bary space

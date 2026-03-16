@@ -123,6 +123,10 @@ void uiBaker(tool_bake::ToolBakeArgs& bake_args, ViewerSettings::GlobalToolSetti
   }
 
   PE::entry(
+      "Bake Micro Normals", [&]() { return ImGui::Checkbox("##BakeNormals", &bake_args.bakeNormals); },
+      "Bake per-microvertex normals into a separate .bary file referenced via NV_attribute_micromap.");
+
+  PE::entry(
       "Quaternion Textures Stem",
       [&]() { return ImGuiH::InputText("##QTS", &bake_args.quaternionTexturesStem, ImGuiInputTextFlags_None); },
       "Add text here to generate a quaternion texture named {text}.{mesh index}.png for each mesh.");

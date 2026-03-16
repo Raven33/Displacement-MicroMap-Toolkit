@@ -312,19 +312,22 @@ bool saveTinygltfModel(const fs::path& filename, tinygltf::Model& model)
   return true;
 }
 
-void ToolScene::write(tinygltf::Model& output, const std::set<std::string>& extensionFilter, bool writeDisplacementMicromapExt)
+void ToolScene::write(tinygltf::Model& output, const std::set<std::string>& extensionFilter, bool writeDisplacementMicromapExt, bool writeAttributeMicromapExt)
 {
   // Copy non-mesh data. This clobbers anything previously on the output model
   // except mesh data.
   copyTinygltfModelExtra(model(), output, extensionFilter);
 
   // Fill and rewrite data from ToolScene
-  rewriteMeshes(output, extensionFilter, writeDisplacementMicromapExt);
+  rewriteMeshes(output, extensionFilter, writeDisplacementMicromapExt, writeAttributeMicromapExt);
   rewriteBarys(output);
   rewriteImages(output);
 }
 
-void ToolScene::rewriteMeshes(tinygltf::Model& output, const std::set<std::string>& extensionFilter, bool writeDisplacementMicromapExt)
+void ToolScene::rewriteMeshes(tinygltf::Model&             output,
+                              const std::set<std::string>& extensionFilter,
+                              bool                         writeDisplacementMicromapExt,
+                              bool                         writeAttributeMicromapExt)
 {
   // Rebuild gltfMeshToToolMeshes from createViews(), so that we can write
   // m_meshes in the same structure that they were originally created from. This
@@ -403,6 +406,17 @@ void ToolScene::rewriteMeshes(tinygltf::Model& output, const std::set<std::strin
       displacementMicromap.groupIndex = relations.group;
       displacementMicromap.mapOffset  = relations.mapOffset;
       setPrimitiveDisplacementMicromap(primitive, displacementMicromap);
+    }
+
+    // Attribute micromap handling (NV_attribute_micromap)
+    if(writeAttributeMicromapExt && relations.attributeBary >= 0)
+    {
+      NV_attribute_micromap attributeMicromap;
+      attributeMicromap.micromap   = relations.attributeBary;
+      attributeMicromap.groupIndex = relations.attributeGroup;
+      attributeMicromap.mapOffset  = relations.attributeMapOffset;
+      attributeMicromap.mapIndices = -1;
+      setPrimitiveAttributeMicromap(primitive, attributeMicromap);
     }
 
     primitives.push_back(std::move(primitive));
@@ -514,6 +528,7 @@ void ToolScene::rewriteBarys(tinygltf::Model& output)
   bool hasHeightmapDisplacement = false;
   bool hasNVDispacementMicromap = false;
   bool hasNVMicromapTooling     = false;
+  bool hasNVAttributeMicromap   = false;
   for(auto& mesh : output.meshes)
   {
     for(auto& primitive : mesh.primitives)
@@ -528,6 +543,11 @@ void ToolScene::rewriteBarys(tinygltf::Model& output)
       {
         hasNVMicromapTooling = true;
       }
+      NV_attribute_micromap attributeMicromap;
+      if(getPrimitiveAttributeMicromap(primitive, attributeMicromap))
+      {
+        hasNVAttributeMicromap = true;
+      }
     }
   }
   for(const auto& material : output.materials)
@@ -538,11 +558,11 @@ void ToolScene::rewriteBarys(tinygltf::Model& output)
       hasHeightmapDisplacement = true;
     }
   }
-  assert(m_barys.empty() == !hasNVDispacementMicromap);
   setExtensionUsed(output.extensionsUsed, "KHR_materials_displacement", hasHeightmapDisplacement);
   setExtensionUsed(output.extensionsUsed, NV_DISPLACEMENT_MICROMAP, hasNVDispacementMicromap);
   setExtensionUsed(output.extensionsUsed, NV_MICROMAP_TOOLING, hasNVMicromapTooling);
-  setExtensionUsed(output.extensionsUsed, NV_MICROMAPS, hasNVDispacementMicromap || hasNVMicromapTooling);
+  setExtensionUsed(output.extensionsUsed, NV_ATTRIBUTE_MICROMAP, hasNVAttributeMicromap);
+  setExtensionUsed(output.extensionsUsed, NV_MICROMAPS, hasNVDispacementMicromap || hasNVMicromapTooling || hasNVAttributeMicromap);
 }
 
 void ToolScene::rewriteImages(tinygltf::Model& output)
@@ -649,8 +669,16 @@ bool ToolScene::save(const fs::path& filename)
   if(!isOriginalMeshData())
   {
     LOGI("Rewriting the gltf model as new mesh data was generated\n");
-    bool writeDisplacementMicromapExt = !m_barys.empty();
-    write(rewrittenModel, {}, writeDisplacementMicromapExt);
+    bool writeDisplacementMicromapExt = false;
+    bool writeAttributeMicromapExt    = false;
+    for(auto& mesh : m_meshes)
+    {
+      if(mesh->relations().bary >= 0)
+        writeDisplacementMicromapExt = true;
+      if(mesh->relations().attributeBary >= 0)
+        writeAttributeMicromapExt = true;
+    }
+    write(rewrittenModel, {}, writeDisplacementMicromapExt, writeAttributeMicromapExt);
     outModel = &rewrittenModel;
   }
   else
@@ -780,13 +808,13 @@ void ToolScene::setMesh(size_t meshIndex, std::unique_ptr<ToolMesh> mesh)
   assert(relations.bary == -1 || (relations.bary >= 0 && static_cast<size_t>(relations.bary) < m_barys.size()));
   assert(relations.bary == -1
          || (relations.group >= 0 && static_cast<size_t>(relations.group) < m_barys[relations.bary]->groups().size()));
-  m_meshes[meshIndex]      = std::move(mesh);
+  m_meshes[meshIndex] = std::move(mesh);
 }
 
 void ToolScene::setImage(size_t imageIndex, std::unique_ptr<ToolImage> image)
 {
   assert(imageIndex < m_images.size());
-  m_images[imageIndex]      = std::move(image);
+  m_images[imageIndex] = std::move(image);
 }
 
 size_t ToolScene::replaceBarys(std::unique_ptr<ToolBary> bary)
@@ -803,8 +831,8 @@ void ToolScene::linkBary(size_t baryIndex, size_t groupIndex, size_t meshIndex)
 {
   // Update the references on the ToolMesh
   std::unique_ptr<ToolMesh>& mesh = m_meshes[meshIndex];
-  mesh->relations().bary  = static_cast<int32_t>(baryIndex);
-  mesh->relations().group = static_cast<int32_t>(groupIndex);
+  mesh->relations().bary          = static_cast<int32_t>(baryIndex);
+  mesh->relations().group         = static_cast<int32_t>(groupIndex);
 
   // Remove heightmap displacement from this mesh's material. Note: this may
   // remove heightmap displacement from other meshes that share this material,
@@ -868,6 +896,22 @@ void ToolScene::linkBary(size_t baryIndex, size_t groupIndex, size_t meshIndex)
       m_images.erase(m_images.begin() + imageIndex);
     }
   }
+}
+
+void ToolScene::linkAttributeBary(size_t baryIndex, size_t groupIndex, size_t meshIndex)
+{
+  // Update the references on the ToolMesh
+  std::unique_ptr<ToolMesh>& mesh      = m_meshes[meshIndex];
+  mesh->relations().attributeBary      = static_cast<int32_t>(baryIndex);
+  mesh->relations().attributeGroup     = static_cast<int32_t>(groupIndex);
+  mesh->relations().attributeMapOffset = 0;
+}
+
+size_t ToolScene::appendBary(std::unique_ptr<ToolBary> bary)
+{
+  size_t index = m_barys.size();
+  m_barys.push_back(std::move(bary));
+  return index;
 }
 
 void ToolScene::clearBarys()
@@ -971,7 +1015,7 @@ bool ToolScene::loadImages(const fs::path& basePath)
       info.componentBitDepth = gltfImage.bits;
       // Ignore image load failures. An error will already be printed.
       std::string name = (gltfImage.name.empty() ? "embedded_image_" + std::to_string(m_images.size() - 1) : gltfImage.name);
-      m_images.back()  = ToolImage::create(info, name + ".png");
+      m_images.back() = ToolImage::create(info, name + ".png");
       if(!m_images.back())
       {
         LOGE("Failed to create ToolImage for scene\n");
@@ -1039,10 +1083,10 @@ ToolSceneDimensions::ToolSceneDimensions(const ToolScene& scene)
   // Find the union of all object space bounding boxes transformed to world space
   for(auto& instance : scene.instances())
   {
-    auto&           mesh        = scene.meshes()[instance.mesh];
-    bool            foundMinMax = false;
-    nvmath::vec3f   posMin;
-    nvmath::vec3f   posMax;
+    auto&         mesh        = scene.meshes()[instance.mesh];
+    bool          foundMinMax = false;
+    nvmath::vec3f posMin;
+    nvmath::vec3f posMax;
 
     // If the mesh is still consistent with the gltf, it is safe to read the
     // bounds from the file

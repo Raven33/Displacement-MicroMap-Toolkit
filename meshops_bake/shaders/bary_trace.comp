@@ -48,6 +48,10 @@ layout(buffer_reference, scalar) readonly buffer Distances
 {
   float d[];
 };
+layout(buffer_reference, scalar) buffer Normals
+{
+  vec3 n[];
+};
 layout(buffer_reference, scalar) readonly buffer Triangles
 {
   Triangle t[];
@@ -248,6 +252,28 @@ void main()
     if(pc.lastBatch == 1 && dist.d[offset] == FLT_MAX)
     {
       dist.d[offset] = traceOriginT;
+    }
+
+    // Write the tangent-space normal for this microvertex when requested.
+    // The normal is stored as a unit vec3 in the base mesh's tangent space.
+    if(pc.bakeNormals == 1 && hitValid)
+    {
+      // Interpolate the base mesh TBN at the current barycentric coordinate.
+      vec3  baseNormal  = normalize(mixBary(v0.normal,  v1.normal,  v2.normal,  barycentrics));
+      vec4  baseTangent = mixBary(v0.tangent, v1.tangent, v2.tangent, barycentrics);
+      float bitangentSign = baseTangent.w;
+      mat3  tbn = makeTangentSpace(mat3(pc.objectToWorld), mat3(transpose(inverse(pc.objectToWorld))),
+                                   baseNormal, baseTangent.xyz, bitangentSign);
+
+      // Transform the hit normal (already in world space via objectToWorld applied in traceRay)
+      // into the base mesh tangent space.
+      vec3 wsHitNormal  = normalize(mat3(hit.objectToWorld) * hit.normal);
+      // tbn columns are (T, B, N); inverse is transpose for orthonormal matrix
+      vec3 tsNormal     = transpose(tbn) * wsHitNormal;
+      tsNormal          = normalize(tsNormal);
+
+      Normals norms     = Normals(sceneDesc.normalsAddress);
+      norms.n[offset]   = tsNormal;
     }
 
     float dMin = subgroupMin(hitValid ? hit.distance : traceOriginT);

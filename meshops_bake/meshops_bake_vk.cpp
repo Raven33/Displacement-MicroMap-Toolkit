@@ -85,7 +85,9 @@ bool BakerVK::bakeAndResample(const meshops::OpBake_input&              input,
     sceneDesc.baseMeshAddress = nvvk::getBufferDeviceAddress(m_vk.context->m_device, m_baseVk.primInfoBuf.buffer);
     sceneDesc.referenceMeshAddress =
         nvvk::getBufferDeviceAddress(m_vk.context->m_device, referenceScene.referenceVk.primInfoBuf.buffer);
-    sceneDesc.distancesAddress       = nvvk::getBufferDeviceAddress(m_vk.context->m_device, m_distanceBuf.buffer);
+    sceneDesc.distancesAddress = nvvk::getBufferDeviceAddress(m_vk.context->m_device, m_distanceBuf.buffer);
+    sceneDesc.normalsAddress =
+        m_normalsBuf.buffer != VK_NULL_HANDLE ? nvvk::getBufferDeviceAddress(m_vk.context->m_device, m_normalsBuf.buffer) : 0;
     sceneDesc.trianglesAddress       = nvvk::getBufferDeviceAddress(m_vk.context->m_device, m_trianglesBuf.buffer);
     sceneDesc.triangleMinMaxsAddress = nvvk::getBufferDeviceAddress(m_vk.context->m_device, m_triangleMinMaxBuf.buffer);
     for(size_t levelIdx = 0; levelIdx < m_baryCoordBuf.size(); levelIdx++)
@@ -134,7 +136,7 @@ bool BakerVK::bakeAndResample(const meshops::OpBake_input&              input,
 //--------------------------------------------------------------------------------------------------
 // Creating Vulkan resources
 //
-void BakerVK::create(const meshops::OpBake_input& input, MutableArrayView<float> distances)
+void BakerVK::create(const meshops::OpBake_input& input, MutableArrayView<float> distances, MutableArrayView<nvmath::vec3f> normals)
 {
   nvh::ScopedTimer         t("Create Baker VK Resources\n");
   const meshops::MeshView& baseMeshView = input.baseMeshView;
@@ -180,8 +182,19 @@ void BakerVK::create(const meshops::OpBake_input& input, MutableArrayView<float>
     triangles[i].valueCount = bary::baryValueFrequencyGetCount(bary::ValueFrequency::ePerVertex, triangles[i].subdivLevel);
     triangles[i].valueFirst = i == 0 ? 0 : triangles[i - 1].valueFirst + triangles[i - 1].valueCount;
   }
-  m_distanceBuf  = m_vk.resAllocator->createBuffer(cmdBuf, distances.size() * sizeof(distances[0]), distances.data(),
+  m_distanceBuf = m_vk.resAllocator->createBuffer(cmdBuf, distances.size() * sizeof(distances[0]), distances.data(),
+                                                  bufferUsage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+  // Allocate normals buffer if normal baking is requested (non-empty view)
+  m_push.bakeNormals = !normals.empty() ? 1 : 0;
+  if(!normals.empty())
+  {
+    // Initialize to zero (no-hit = zero normal)
+    std::fill(normals.begin(), normals.end(), nvmath::vec3f(0.0f, 0.0f, 0.0f));
+    m_normalsBuf = m_vk.resAllocator->createBuffer(cmdBuf, normals.size() * sizeof(normals[0]), normals.data(),
                                                    bufferUsage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+  }
+
   m_trianglesBuf = m_vk.resAllocator->createBuffer(cmdBuf, triangles, bufferUsage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
   m_triangleMinMaxBuf = m_vk.resAllocator->createBuffer(cmdBuf, minMaxPairs, bufferUsage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
@@ -207,16 +220,18 @@ void BakerVK::create(const meshops::OpBake_input& input, MutableArrayView<float>
   m_vk.resAllocator->finalizeAndReleaseStaging();
 }
 
-uint64_t BakerVK::estimateBaseGpuMemory(uint64_t distances, uint64_t triangles, uint64_t vertices, bool requireDirectionBounds)
+uint64_t BakerVK::estimateBaseGpuMemory(uint64_t distances, uint64_t triangles, uint64_t vertices, bool requireDirectionBounds, bool bakeNormals)
 {
   // A conservative guess for allocation granularity
   const uint64_t alignment = 4096;
 
   // Persistent gpu memory used between batches
   uint64_t result = 0;
-  result += nvh::align_up(sizeof(float) * distances, alignment);                  // m_distanceBuf
-  result += nvh::align_up(sizeof(shaders::Triangle) * triangles, alignment);      // m_trianglesBuf
-  result += nvh::align_up(sizeof(nvmath::vec2f) * triangles, alignment);          // m_triangleMinMaxBuf
+  result += nvh::align_up(sizeof(float) * distances, alignment);  // m_distanceBuf
+  if(bakeNormals)
+    result += nvh::align_up(sizeof(nvmath::vec3f) * distances, alignment);    // m_normalsBuf
+  result += nvh::align_up(sizeof(shaders::Triangle) * triangles, alignment);  // m_trianglesBuf
+  result += nvh::align_up(sizeof(nvmath::vec2f) * triangles, alignment);      // m_triangleMinMaxBuf
   result += BakerMeshVK::estimateGpuMemory(triangles, vertices, requireDirectionBounds);
 
   return result;
@@ -778,7 +793,7 @@ void BakerReferenceScene::createTopLevelAS(const meshops::OpBake_input& input)
   VkAccelerationStructureInstanceKHR rayInst{};
   rayInst.transform           = nvvk::toTransformMatrixKHR(referenceMeshTransform);  // Position of the instance
   rayInst.instanceCustomIndex = primMeshID & 0xFFF;                                  // gl_InstanceCustomIndexEXT
-  rayInst.accelerationStructureReference = rtBuilder.getBlasDeviceAddress(blasId);
+  rayInst.accelerationStructureReference         = rtBuilder.getBlasDeviceAddress(blasId);
   rayInst.instanceShaderBindingTableRecordOffset = 0;  // We will use the same hit group for all objects
   rayInst.flags                                  = flags & 0xFF;
   rayInst.mask                                   = 0xFF;
@@ -795,6 +810,8 @@ void BakerVK::destroy()
   m_baseVk.destroy(m_vk.resAllocator);
 
   m_vk.resAllocator->destroy(m_distanceBuf);
+  if(m_normalsBuf.buffer != VK_NULL_HANDLE)
+    m_vk.resAllocator->destroy(m_normalsBuf);
   for(auto& b : m_baryCoordBuf)
     m_vk.resAllocator->destroy(b);
   m_vk.resAllocator->destroy(m_trianglesBuf);
@@ -1360,6 +1377,19 @@ void BakerVK::getDistanceFromBuffer(const meshops::OpBake_input&    input,
     }
     m_vk.resAllocator->unmap(m_baseVk.directionBoundsBuf);
   }
+}
+
+//--------------------------------------------------------------------------------------------------
+// Retrieve the normals that were computed (only valid when bakeNormals was set in create())
+//
+void BakerVK::getNormalsFromBuffer(MutableArrayView<nvmath::vec3f> normals)
+{
+  assert(m_normalsBuf.buffer != VK_NULL_HANDLE);
+  nvh::ScopedTimer t("Get Normals Buffer");
+  uint32_t         threadCount = micromesh::micromeshOpContextGetConfig(m_micromeshContext).threadCount;
+  auto             normalsGpu  = static_cast<nvmath::vec3f*>(m_vk.resAllocator->map(m_normalsBuf));
+  nvh::parallel_batches(normals.size(), [&](uint64_t idx) { normals[idx] = normalsGpu[idx]; }, threadCount);
+  m_vk.resAllocator->unmap(m_normalsBuf);
 }
 
 }  // namespace meshops

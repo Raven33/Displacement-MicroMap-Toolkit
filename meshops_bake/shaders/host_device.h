@@ -94,6 +94,7 @@ struct SceneDescription
   uint64_t baseMeshAddress;
   uint64_t referenceMeshAddress;
   uint64_t distancesAddress;
+  uint64_t normalsAddress;
   uint64_t trianglesAddress;
   uint64_t triangleMinMaxsAddress;
   uint64_t baryCoordsAddress[BAKER_NUM_SUBDIV_LEVEL_MAPS];
@@ -172,6 +173,7 @@ struct BakerPushConstants
   uint  uniDirectional;           // bool, only trace forwards, along the direction vector
   uint  hasDirectionBounds;       // bool, use per-vertex direction bounds if true, otherwise assume bias/scale of 0/1
   uint  lastBatch;                // bool, true to do disatance post-processing if this is the final batch for baking
+  uint  bakeNormals;              // bool, true to write normals to normalsAddress
   uint  numResampleTextures;
   uint  resampleMaxResolution;
   uint  baryTraceBatchOffset;

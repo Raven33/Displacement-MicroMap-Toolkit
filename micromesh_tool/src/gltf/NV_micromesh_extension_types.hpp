@@ -34,6 +34,17 @@ struct NV_displacement_micromap
   int32_t primitiveFlagsOffset{0};  // Overriden by topologyFlags; start index into the MeshTriangleFlags property of the DM array.
 };
 
+#define NV_ATTRIBUTE_MICROMAP "NV_attribute_micromap"
+// Specifies how to use a micromap for per-microvertex attributes (NORMAL, TEXCOORD_0, etc.).
+// https://github.com/NBickford-NV/glTF/tree/micro-mesh/extensions/2.0/Vendor/NV_attribute_micromap
+struct NV_attribute_micromap
+{
+  int32_t micromap{-1};    // Index into root NV_micromaps array
+  int32_t groupIndex{0};   // Group within the bary file
+  int32_t mapOffset{0};    // Offset into group's triangle list
+  int32_t mapIndices{-1};  // Optional per-triangle remap accessor
+};
+
 #define NV_MICROMAP_TOOLING "NV_micromap_tooling"
 // Used to transfer data between tools, when glTF is the main way to store data.
 struct NV_micromap_tooling

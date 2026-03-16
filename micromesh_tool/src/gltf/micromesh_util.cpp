@@ -382,6 +382,47 @@ void updateExtensionsUsed(tinygltf::Model& model)
   }
 }
 
+bool getPrimitiveAttributeMicromap(const tinygltf::Primitive& primitive, NV_attribute_micromap& extension)
+{
+  const auto& ext_map = primitive.extensions.find(NV_ATTRIBUTE_MICROMAP);
+  if(ext_map == primitive.extensions.end())
+  {
+    return false;
+  }
+
+  auto& ext = ext_map->second;
+  nvh::getInt(ext, "micromap", extension.micromap);
+  nvh::getInt(ext, "groupIndex", extension.groupIndex);
+  nvh::getInt(ext, "mapOffset", extension.mapOffset);
+  nvh::getInt(ext, "mapIndices", extension.mapIndices);
+  return true;
+}
+
+void setPrimitiveAttributeMicromap(tinygltf::Primitive& primitive, const NV_attribute_micromap& extension)
+{
+  NV_attribute_micromap defaults;
+
+  // Clear the extension object if providing all default values
+  if(memcmp(&defaults, &extension, sizeof(defaults)) == 0)
+  {
+    primitive.extensions.erase(NV_ATTRIBUTE_MICROMAP);
+    return;
+  }
+
+  using namespace tinygltf;
+  Value::Object ext;
+  if(defaults.micromap != extension.micromap)
+    ext.emplace("micromap", extension.micromap);
+  if(defaults.groupIndex != extension.groupIndex)
+    ext.emplace("groupIndex", extension.groupIndex);
+  if(defaults.mapOffset != extension.mapOffset)
+    ext.emplace("mapOffset", extension.mapOffset);
+  if(defaults.mapIndices != extension.mapIndices)
+    ext.emplace("mapIndices", extension.mapIndices);
+
+  primitive.extensions[NV_ATTRIBUTE_MICROMAP] = std::move(tinygltf::Value(ext));
+}
+
 bool updateNVBarycentricDisplacementToNVDisplacementMicromap(tinygltf::Model& model)
 {
   constexpr int32_t NO_ENTRY = -1;

@@ -92,7 +92,7 @@ bool toolBakeParse(int argc, char** argv, ToolBakeArgs& args, std::ostream& os)
 {
   bool printHelp = false;
 
-  namespace fs        = std::filesystem;
+  namespace fs = std::filesystem;
   std::string texturesToResample;
   std::string resampleExtraTexturesStr;
   std::string adaptiveSubdivisionMode;
@@ -168,6 +168,11 @@ bool toolBakeParse(int argc, char** argv, ToolBakeArgs& args, std::ostream& os)
   // Outputs
   parser.addArgument({"--bary"}, &args.baryFilename,
                      "OUTPUT: Optionally override the bary filename. default=<gltfFile>.bary");
+  parser.addArgument({"--bake-normals"}, &args.bakeNormals,
+                     "OUTPUT: Bake per-microvertex normals into a separate .bary file referenced via "
+                     "NV_attribute_micromap. default=false");
+  parser.addArgument({"--normal-bary"}, &args.normalBaryFilename,
+                     "OUTPUT: Optionally override the normal bary filename. default=<baryFile>_normals.bary");
   parser.addArgument({"--write-intermediate-meshes"}, &args.writeIntermediateMeshes,
                      "DEBUG: write heightmap displaced geometry from --bakeHighLow to ./highres_*.gltf");
 #if 0

@@ -64,10 +64,16 @@ public:
   ~ToolScene() {}
 
   // Write the contents of the scene into a new tinygltf Model
-  void write(tinygltf::Model& output, const std::set<std::string>& extensionFilter = {}, bool writeDisplacementMicromapExt = false);
+  void write(tinygltf::Model&             output,
+             const std::set<std::string>& extensionFilter              = {},
+             bool                         writeDisplacementMicromapExt = false,
+             bool                         writeAttributeMicromapExt    = false);
 
   // Rewrites the gltf meshes to match the scene's meshes().
-  void rewriteMeshes(tinygltf::Model& output, const std::set<std::string>& extensionFilter = {}, bool writeDisplacementMicromapExt = false);
+  void rewriteMeshes(tinygltf::Model&             output,
+                     const std::set<std::string>& extensionFilter              = {},
+                     bool                         writeDisplacementMicromapExt = false,
+                     bool                         writeAttributeMicromapExt    = false);
 
   // Rewrites the gltf micromesh extensions to match the scene's barys().
   // Assumes the gltf meshes are already in sync.
@@ -112,6 +118,13 @@ public:
   // a gltf micromap references a bary file. Removes any existing displacement
   // references in the gltf, e.g. previous micromap or heightmap.
   void linkBary(size_t baryIndex, size_t groupIndex, size_t meshIndex);
+
+  // Updates the gltf Model to mark the ToolMesh at meshIndex as having an attribute
+  // micromap (e.g., normals) from the ToolBary at baryIndex's group groupIndex.
+  void linkAttributeBary(size_t baryIndex, size_t groupIndex, size_t meshIndex);
+
+  // Appends a new bary to the scene without clearing existing ones. Returns the new bary's index.
+  size_t appendBary(std::unique_ptr<ToolBary> bary);
 
   // Creates a new un-allocated image. Returns the index to be used in
   // images()[index] and referencing the new image in the gltf textures() array.

@@ -77,6 +77,14 @@ tinygltf::Value::Object createTinygltfMicromapObject(NV_micromap micromap);
 // updateExtensions must be called manually.
 int32_t addTinygltfMicromap(tinygltf::Model& model, const NV_micromap& nvMicromap);
 
+// Retrieves the NV_attribute_micromap extension from a TinyGLTF primitive.
+// Returns whether the primitive had the extension.
+bool getPrimitiveAttributeMicromap(const tinygltf::Primitive& primitive, NV_attribute_micromap& extension);
+
+// Sets the NV_attribute_micromap extension for a TinyGLTF primitive, adding it
+// if it doesn't exist.
+void setPrimitiveAttributeMicromap(tinygltf::Primitive& primitive, const NV_attribute_micromap& extension);
+
 // Add the given micromap URI to the model and returns its index, to be used in NV_displacement_micromap
 int32_t addTinygltfMicromap(tinygltf::Model& model, const std::string& micromapUri);
 
