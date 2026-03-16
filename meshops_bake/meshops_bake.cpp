@@ -607,7 +607,38 @@ MESHOPS_API micromesh::Result MESHOPS_CALL meshopsOpBake(Context context, BakerO
     // Readback raw float vec3 normals from GPU buffer
     baker.getNormalsFromBuffer(normalsView);
 
-    // Quantize float normals to eRGB16_snorm in output.uncompressedNormal->values
+    // Sanitize normal edge values on float data before quantizing.
+    // micromeshOpSanitizeEdgeValues only accepts SFLOAT, so sanitize each XYZ
+    // channel individually using a strided ArrayInfo that steps over the other
+    // two components. The triangle subdiv/offset arrays are borrowed from the
+    // already-initialised normal bary data.
+    {
+      assert(output.uncompressedNormal->groups.size() == 1);
+      bary::BasicView            normalBaryView = output.uncompressedNormal->getView();
+      micromesh::MicromapGeneric normalMicromapG;
+      microutils::baryBasicViewToMicromap(normalBaryView, 0u, normalMicromapG);
+      micromesh::Micromap channelMicromap = normalMicromapG.uncompressed;  // copy triangle arrays
+
+      for(int ch = 0; ch < 3; ++ch)
+      {
+        channelMicromap.values.data       = reinterpret_cast<uint8_t*>(normalValues.data()) + ch * sizeof(float);
+        channelMicromap.values.format     = micromesh::Format::eR32_sfloat;
+        channelMicromap.values.byteStride = static_cast<uint32_t>(sizeof(nvmath::vec3f));  // 12 bytes
+        channelMicromap.values.count      = static_cast<uint64_t>(normalValues.size());
+
+        micromesh::OpSanitizeEdgeValues_input sanitizeInput;
+        sanitizeInput.meshTopology = baseMeshTopology;
+        micromesh::Result result =
+            micromesh::micromeshOpSanitizeEdgeValues(context->m_micromeshContext, &sanitizeInput, &channelMicromap);
+        if(result != micromesh::Result::eSuccess)
+        {
+          MESHOPS_LOGE(context, "micromesh::micromeshOpSanitizeEdgeValues() failed for normals channel %d", ch);
+          return result;
+        }
+      }
+    }
+
+    // Quantize sanitized float normals to eRGB16_snorm in output.uncompressedNormal->values
     // Each element is 6 bytes: 3 x int16_t snorm in [-1,1]
     assert(output.uncompressedNormal->valuesInfo.valueFormat == bary::Format::eRGB16_snorm);
     assert(output.uncompressedNormal->valuesInfo.valueByteSize == 6);
@@ -627,24 +658,6 @@ MESHOPS_API micromesh::Result MESHOPS_CALL meshopsOpBake(Context context, BakerO
       memcpy(dst + i * 6 + 0, &x, 2);
       memcpy(dst + i * 6 + 2, &y, 2);
       memcpy(dst + i * 6 + 4, &z, 2);
-    }
-
-    // Sanitize normal edge values — shared triangle edges must agree
-    assert(output.uncompressedNormal->groups.size() == 1);
-    bary::BasicView            normalBaryView = output.uncompressedNormal->getView();
-    micromesh::MicromapGeneric normalMicromapG;
-    microutils::baryBasicViewToMicromap(normalBaryView, 0u, normalMicromapG);
-    micromesh::Micromap& normalMicromap = normalMicromapG.uncompressed;
-    {
-      micromesh::OpSanitizeEdgeValues_input sanitizeInput;
-      sanitizeInput.meshTopology = baseMeshTopology;
-      micromesh::Result result =
-          micromesh::micromeshOpSanitizeEdgeValues(context->m_micromeshContext, &sanitizeInput, &normalMicromap);
-      if(result != micromesh::Result::eSuccess)
-      {
-        MESHOPS_LOGE(context, "micromesh::micromeshOpSanitizeEdgeValues() failed for normals");
-        return result;
-      }
     }
   }
 
