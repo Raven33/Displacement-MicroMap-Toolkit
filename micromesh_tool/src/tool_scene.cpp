@@ -666,18 +666,23 @@ bool ToolScene::save(const fs::path& filename)
   // combining both the original and the new data.
   tinygltf::Model  rewrittenModel;
   tinygltf::Model* outModel = m_model.get();
-  if(!isOriginalMeshData())
+
+  // Check for attribute micromaps - these require rewriteMeshes() to stamp
+  // NV_attribute_micromap onto primitives, so they force the write() path even
+  // if the mesh geometry itself is original (unchanged) data.
+  bool writeDisplacementMicromapExt = false;
+  bool writeAttributeMicromapExt    = false;
+  for(auto& mesh : m_meshes)
+  {
+    if(mesh->relations().bary >= 0)
+      writeDisplacementMicromapExt = true;
+    if(mesh->relations().attributeBary >= 0)
+      writeAttributeMicromapExt = true;
+  }
+
+  if(!isOriginalMeshData() || writeAttributeMicromapExt)
   {
     LOGI("Rewriting the gltf model as new mesh data was generated\n");
-    bool writeDisplacementMicromapExt = false;
-    bool writeAttributeMicromapExt    = false;
-    for(auto& mesh : m_meshes)
-    {
-      if(mesh->relations().bary >= 0)
-        writeDisplacementMicromapExt = true;
-      if(mesh->relations().attributeBary >= 0)
-        writeAttributeMicromapExt = true;
-    }
     write(rewrittenModel, {}, writeDisplacementMicromapExt, writeAttributeMicromapExt);
     outModel = &rewrittenModel;
   }
