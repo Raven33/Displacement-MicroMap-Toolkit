@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <map>
 
 #define NV_GLTF_COMPONENT_TYPE_HALF_FLOAT 5131
 
@@ -40,9 +41,12 @@ struct NV_displacement_micromap
 struct NV_attribute_micromap
 {
   int32_t micromap{-1};    // Index into root NV_micromaps array
-  int32_t groupIndex{0};   // Group within the bary file
-  int32_t mapOffset{0};    // Offset into group's triangle list
-  int32_t mapIndices{-1};  // Optional per-triangle remap accessor
+  std::map<std::string, int> attributes; // key corresponds to a mesh attribute semantic, and each value is the index of the micromap containing the data
+  int32_t mapIndices{-1};  // Index of an accessor that provides a map from the triangle ID to the displacement map.
+  int32_t mapIndicesOffset{0};  // Overridden by mapIndices; start index into the eMeshPrimitiveMappings property of the DM array.
+  int32_t mapOffset{0};        // An unsigned integer that will be added to each of the mapIndices values.
+  int32_t primitiveFlagsOffset{0};  // Overriden by topologyFlags; start index into the MeshTriangleFlags property of the DM array.
+  int32_t primitiveFlags{-1};  // Index of an accessor for per-primitive flags.
 };
 
 #define NV_MICROMAP_TOOLING "NV_micromap_tooling"

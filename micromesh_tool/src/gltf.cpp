@@ -91,7 +91,7 @@ int makeAccessor(tinygltf::Model&    model,
   return accessorID;
 }
 
-tinygltf::Primitive tinygltfAppendPrimitive(tinygltf::Model& model, const meshops::MeshView& meshView, bool writeDisplacementMicromapExt)
+tinygltf::Primitive tinygltfAppendPrimitive(tinygltf::Model& model, const meshops::MeshView& meshView, bool writeDisplacementMicromapExt, bool writeAttributeMicromapExt)
 {
   assert(meshView.triangleCount());
   assert(meshView.vertexCount());

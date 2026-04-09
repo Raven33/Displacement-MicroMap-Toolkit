@@ -392,9 +392,17 @@ bool getPrimitiveAttributeMicromap(const tinygltf::Primitive& primitive, NV_attr
 
   auto& ext = ext_map->second;
   nvh::getInt(ext, "micromap", extension.micromap);
-  nvh::getInt(ext, "groupIndex", extension.groupIndex);
-  nvh::getInt(ext, "mapOffset", extension.mapOffset);
+  auto keys = ext.Get("Attributes").Keys();
+  for(auto& key : keys)
+  {
+    extension.attributes[key] = ext.Get("Attributes").Get(key).Get<int>();
+  }
+  nvh::getInt(ext, "mapIndicesOffset", extension.mapIndices);
+  //nvh::getInt(ext, "attributes", extension.attributes);
   nvh::getInt(ext, "mapIndices", extension.mapIndices);
+  nvh::getInt(ext, "mapOffset", extension.mapOffset);
+  nvh::getInt(ext, "primitiveFlagsOffset", extension.primitiveFlagsOffset);
+  nvh::getInt(ext, "primitiveFlags", extension.primitiveFlags);
   return true;
 }
 
@@ -403,7 +411,25 @@ void setPrimitiveAttributeMicromap(tinygltf::Primitive& primitive, const NV_attr
   NV_attribute_micromap defaults;
 
   // Clear the extension object if providing all default values
-  if(memcmp(&defaults, &extension, sizeof(defaults)) == 0)
+  bool same = true;
+  same &= (defaults.micromap == extension.micromap);
+  if(defaults.attributes.size() == extension.attributes.size()){
+    same &= true;
+    for(const auto& [key, value] : defaults.attributes){
+      auto it = extension.attributes.find(key);
+      if(it == extension.attributes.end() || it->second != value)
+      {
+        same = false;
+        break;
+      }
+    }
+  }
+  same &= (defaults.mapIndicesOffset == extension.mapIndicesOffset);
+  same &= (defaults.mapIndices == extension.mapIndices);
+  same &= (defaults.mapOffset == extension.mapOffset);
+  same &= (defaults.primitiveFlagsOffset == extension.primitiveFlagsOffset);
+  same &= (defaults.primitiveFlags == extension.primitiveFlags);
+  if(same)
   {
     primitive.extensions.erase(NV_ATTRIBUTE_MICROMAP);
     return;
@@ -413,12 +439,21 @@ void setPrimitiveAttributeMicromap(tinygltf::Primitive& primitive, const NV_attr
   Value::Object ext;
   if(defaults.micromap != extension.micromap)
     ext.emplace("micromap", extension.micromap);
-  if(defaults.groupIndex != extension.groupIndex)
-    ext.emplace("groupIndex", extension.groupIndex);
-  if(defaults.mapOffset != extension.mapOffset)
-    ext.emplace("mapOffset", extension.mapOffset);
+  Value::Object attributes;
+  for(const auto& [key, value] : extension.attributes){
+    attributes.emplace(key, value);
+  }
+  ext.emplace("attributes", std::move(attributes));
+  if(defaults.mapIndicesOffset != extension.mapIndicesOffset)
+    ext.emplace("mapIndicesOffset", extension.mapIndicesOffset);
   if(defaults.mapIndices != extension.mapIndices)
     ext.emplace("mapIndices", extension.mapIndices);
+  if(defaults.mapOffset != extension.mapOffset)
+    ext.emplace("mapOffset", extension.mapOffset);
+  if(defaults.primitiveFlagsOffset != extension.primitiveFlagsOffset)
+    ext.emplace("primitiveFlagsOffset", extension.primitiveFlagsOffset);
+  if(defaults.primitiveFlags != extension.primitiveFlags)
+    ext.emplace("primitiveFlags", extension.primitiveFlags);
 
   primitive.extensions[NV_ATTRIBUTE_MICROMAP] = std::move(tinygltf::Value(ext));
 }

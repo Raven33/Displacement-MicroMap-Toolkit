@@ -128,7 +128,8 @@ int makeAccessor(tinygltf::Model& model, meshops::ConstArrayView<T> data, int vi
  */
 tinygltf::Primitive tinygltfAppendPrimitive(tinygltf::Model&         model,
                                             const meshops::MeshView& meshView,
-                                            bool                     writeDisplacementMicromapExt = false);
+                                            bool                     writeDisplacementMicromapExt = false,
+                                            bool                     writeAttributeMicromapExt = false);
 
 // List of gltf extensions created by or possibly conflicting with appendToTinygltfModel.
 const std::set<std::string>& micromapExtensionNames();

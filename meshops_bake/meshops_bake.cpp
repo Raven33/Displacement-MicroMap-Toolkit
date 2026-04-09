@@ -17,6 +17,7 @@
 #include <meshops_internal/meshops_texture.h>
 #include <meshops/meshops_operations.h>
 #include <meshops/meshops_mesh_view.h>
+#include <meshops_internal/octant_encoding.h>
 #include <memory>
 #include <micromesh/micromesh_types.h>
 #include <micromesh/micromesh_operations.h>
@@ -432,13 +433,11 @@ MESHOPS_API micromesh::Result MESHOPS_CALL meshopsOpBake(Context context, BakerO
 
   // Allocate normal scratch storage (float vec3 for GPU readback) if requested
   const bool                 bakeNormals  = (output.uncompressedNormal != nullptr);
-  bary::Format               normalFormat = bary::Format::eRGB16_snorm;  // Override plan default: use RGB16 not RG16
+  bary::Format               normalFormat = bary::Format::eRG16_snorm; 
   std::vector<nvmath::vec3f> normalValues;
   if(bakeNormals)
   {
-    normalFormat = input.settings.uncompressedNormalFormat == bary::Format::eRG16_snorm ?
-                       bary::Format::eRGB16_snorm :  // upgrade default to RGB
-                       input.settings.uncompressedNormalFormat;
+    normalFormat = input.settings.uncompressedNormalFormat;
     normalValues.resize(output.uncompressedDisplacement->valuesInfo.valueCount, nvmath::vec3f(0.f, 0.f, 0.f));
     initBaryDataNormals(input.baseMeshView, input.settings.level, normalFormat, output.uncompressedNormal);
   }
@@ -638,26 +637,17 @@ MESHOPS_API micromesh::Result MESHOPS_CALL meshopsOpBake(Context context, BakerO
       }
     }
 
-    // Quantize sanitized float normals to eRGB16_snorm in output.uncompressedNormal->values
-    // Each element is 6 bytes: 3 x int16_t snorm in [-1,1]
-    assert(output.uncompressedNormal->valuesInfo.valueFormat == bary::Format::eRGB16_snorm);
-    assert(output.uncompressedNormal->valuesInfo.valueByteSize == 6);
+
+    assert(output.uncompressedNormal->valuesInfo.valueFormat == bary::Format::eRG16_snorm);
+    assert(output.uncompressedNormal->valuesInfo.valueByteSize == 4);
     const uint32_t numNormals = output.uncompressedNormal->valuesInfo.valueCount;
     assert(normalValues.size() == numNormals);
     uint8_t* dst = output.uncompressedNormal->values.data();
     for(uint32_t i = 0; i < numNormals; ++i)
     {
-      const nvmath::vec3f& n         = normalValues[i];
-      auto                 toSnorm16 = [](float v) -> int16_t {
-        v = std::max(-1.0f, std::min(1.0f, v));
-        return static_cast<int16_t>(std::round(v * 32767.0f));
-      };
-      int16_t x = toSnorm16(n.x);
-      int16_t y = toSnorm16(n.y);
-      int16_t z = toSnorm16(n.z);
-      memcpy(dst + i * 6 + 0, &x, 2);
-      memcpy(dst + i * 6 + 2, &y, 2);
-      memcpy(dst + i * 6 + 4, &z, 2);
+      const nvmath::vec3f& n     = normalValues[i];
+      nvmath::uint         qNorm = ::shaders::vec_to_oct32(n);
+      memcpy(dst + i * 4 + 0, &qNorm, 4);
     }
   }
 

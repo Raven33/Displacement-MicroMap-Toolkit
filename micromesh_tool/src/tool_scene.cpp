@@ -411,11 +411,17 @@ void ToolScene::rewriteMeshes(tinygltf::Model&             output,
     // Attribute micromap handling (NV_attribute_micromap)
     if(writeAttributeMicromapExt && relations.attributeBary >= 0)
     {
+      
+      NV_displacement_micromap displacementMicromap;
+      getPrimitiveDisplacementMicromap(primitive, displacementMicromap);
+      
       NV_attribute_micromap attributeMicromap;
       attributeMicromap.micromap   = relations.attributeBary;
-      attributeMicromap.groupIndex = relations.attributeGroup;
+      attributeMicromap.attributes = std::map<std::string, int>{{"NORMAL", relations.attributeBary}};
       attributeMicromap.mapOffset  = relations.attributeMapOffset;
       attributeMicromap.mapIndices = -1;
+      attributeMicromap.primitiveFlagsOffset = displacementMicromap.primitiveFlagsOffset;
+      attributeMicromap.primitiveFlags = displacementMicromap.primitiveFlags;
       setPrimitiveAttributeMicromap(primitive, attributeMicromap);
     }
 
