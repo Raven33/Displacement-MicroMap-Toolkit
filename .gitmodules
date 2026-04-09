@@ -5,7 +5,7 @@
 # it does not use a relative path.
 [submodule "external/nvpro_core"]
 	path = external/nvpro_core
-	url = https://github.com/nvpro-samples/nvpro_core.git
+	url = https://github.com/Raven33/nvpro_core.git
 [submodule "external/libpng"]
 	path = external/libpng
 	url = https://git.code.sf.net/p/libpng/code
